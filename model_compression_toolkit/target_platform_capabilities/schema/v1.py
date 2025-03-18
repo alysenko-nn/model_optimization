@@ -16,7 +16,7 @@ import pprint
 from enum import Enum
 from typing import Dict, Any, Union, Tuple, List, Optional, Literal, Annotated
 
-from pydantic import BaseModel, Field, root_validator, validator, PositiveInt
+from pydantic import field_validator, model_validator, ConfigDict, BaseModel, Field, PositiveInt
 
 from mct_quantizers import QuantizationMethod
 from model_compression_toolkit.constants import FLOAT_BITWIDTH
@@ -117,15 +117,12 @@ class AttributeQuantizationConfig(BaseModel):
     weights_per_channel_threshold: bool = False
     enable_weights_quantization: bool = False
     lut_values_bitwidth: Optional[int] = None
-
-    class Config:
-        # Makes the model immutable (frozen)
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
     @property
     def field_names(self) -> list:
         """Return a list of field names for the model."""
-        return list(self.__fields__.keys())
+        return list(self.model_fields.keys())
 
     def clone_and_edit(self, **kwargs) -> 'AttributeQuantizationConfig':
         """
@@ -137,7 +134,7 @@ class AttributeQuantizationConfig(BaseModel):
         Returns:
             AttributeQuantizationConfig: A new instance of AttributeQuantizationConfig with updated attributes.
         """
-        return self.copy(update=kwargs)
+        return self.model_copy(update=kwargs)
 
 
 class OpQuantizationConfig(BaseModel):
@@ -168,11 +165,10 @@ class OpQuantizationConfig(BaseModel):
     fixed_zero_point: Optional[int]
     simd_size: Optional[int]
     signedness: Signedness
+    model_config = ConfigDict(frozen=True)
 
-    class Config:
-        frozen = True
-
-    @validator('supported_input_activation_n_bits', pre=True, allow_reuse=True)
+    @field_validator('supported_input_activation_n_bits', mode="before")
+    @classmethod
     def validate_supported_input_activation_n_bits(cls, v):
         """
         Validate and process the supported_input_activation_n_bits field.
@@ -196,7 +192,7 @@ class OpQuantizationConfig(BaseModel):
         Returns:
             dict: Information about the quantization configuration as a dictionary.
         """
-        return self.dict()  # pragma: no cover
+        return self.model_dump()  # pragma: no cover
 
     def clone_and_edit(
         self,
@@ -215,7 +211,7 @@ class OpQuantizationConfig(BaseModel):
             OpQuantizationConfig: Edited quantization configuration.
         """
         # Clone and update top-level attributes
-        updated_config = self.copy(update=kwargs)
+        updated_config = self.model_copy(update=kwargs)
 
         # Clone and update nested immutable dataclasses in `attr_weights_configs_mapping`
         updated_attr_mapping = {
@@ -225,7 +221,7 @@ class OpQuantizationConfig(BaseModel):
         }
 
         # Return a new instance with the updated attribute mapping
-        return updated_config.copy(update={'attr_weights_configs_mapping': updated_attr_mapping})
+        return updated_config.model_copy(update={'attr_weights_configs_mapping': updated_attr_mapping})
 
 
 class QuantizationConfigOptions(BaseModel):
@@ -238,11 +234,10 @@ class QuantizationConfigOptions(BaseModel):
     """
     quantization_configurations: Tuple[OpQuantizationConfig, ...]
     base_config: Optional[OpQuantizationConfig] = None
+    model_config = ConfigDict(frozen=True)
 
-    class Config:
-        frozen = True
-
-    @root_validator(pre=True, allow_reuse=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_and_set_base_config(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """
         Validate and set the base_config based on quantization_configurations.
@@ -312,7 +307,7 @@ class QuantizationConfigOptions(BaseModel):
         # Clone and update all configurations
         updated_configs = tuple(cfg.clone_and_edit(**kwargs) for cfg in self.quantization_configurations)
 
-        return self.copy(update={
+        return self.model_copy(update={
             'base_config': updated_base_config,
             'quantization_configurations': updated_configs
         })
@@ -360,7 +355,7 @@ class QuantizationConfigOptions(BaseModel):
             updated_cfg = qc.clone_and_edit(attr_weights_configs_mapping=updated_attr_mapping)
             updated_configs.append(updated_cfg)
 
-        return self.copy(update={
+        return self.model_copy(update={
             'base_config': updated_base_config,
             'quantization_configurations': tuple(updated_configs)
         })
@@ -398,7 +393,7 @@ class QuantizationConfigOptions(BaseModel):
             updated_cfg = qc.clone_and_edit(attr_weights_configs_mapping=new_attr_mapping)
             updated_configs.append(updated_cfg)
 
-        return self.copy(update={
+        return self.model_copy(update={
             'base_config': new_base_config,
             'quantization_configurations': tuple(updated_configs)
         })
@@ -416,8 +411,7 @@ class TargetPlatformModelComponent(BaseModel):
     """
     Component of TargetPlatformCapabilities (Fusing, OperatorsSet, etc.).
     """
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
 
 class OperatorsSetBase(TargetPlatformModelComponent):
@@ -443,9 +437,7 @@ class OperatorsSet(OperatorsSetBase):
 
     # Define a private attribute _type
     type: Literal["OperatorsSet"] = "OperatorsSet"
-
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
     def get_info(self) -> Dict[str, Any]:
         """
@@ -470,11 +462,10 @@ class OperatorSetGroup(OperatorsSetBase):
 
     # Define a private attribute _type
     type: Literal["OperatorSetGroup"] = "OperatorSetGroup"
+    model_config = ConfigDict(frozen=True)
 
-    class Config:
-        frozen = True
-
-    @root_validator(pre=True, allow_reuse=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_and_set_name(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """
         Validate the input and set the concatenated name based on the operators_set.
@@ -524,11 +515,10 @@ class Fusing(TargetPlatformModelComponent):
     """
     operator_groups: Tuple[Annotated[Union[OperatorsSet, OperatorSetGroup], Field(discriminator='type')], ...]
     name: Optional[str] = None  # Will be set in the validator if not given.
+    model_config = ConfigDict(frozen=True)
 
-    class Config:
-        frozen = True
-
-    @root_validator(pre=True, allow_reuse=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_and_set_name(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """
         Validate the operator_groups and set the name by concatenating operator group names.
@@ -555,7 +545,8 @@ class Fusing(TargetPlatformModelComponent):
 
         return values
 
-    @root_validator(allow_reuse=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_after_initialization(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """
         Perform validation after the model has been instantiated.
@@ -648,11 +639,10 @@ class TargetPlatformCapabilities(BaseModel):
     is_simd_padding: bool = False
 
     SCHEMA_VERSION: int = 1
+    model_config = ConfigDict(frozen=True)
 
-    class Config:
-        frozen = True
-
-    @root_validator(allow_reuse=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_after_initialization(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """
         Perform validation after the model has been instantiated.
