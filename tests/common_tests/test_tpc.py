@@ -26,7 +26,6 @@ from model_compression_toolkit.target_platform_capabilities.tpc_io_handler impor
     export_target_platform_capabilities
 from tests.common_tests.helpers.generate_test_tpc import generate_test_attr_configs, generate_test_op_qc
 
-
 TEST_QC = generate_test_op_qc(**generate_test_attr_configs())
 TEST_QCO = schema.QuantizationConfigOptions(quantization_configurations=tuple([TEST_QC]))
 
@@ -47,7 +46,7 @@ class TPModelInputOutputTests(unittest.TestCase):
         self.tpc = schema.TargetPlatformCapabilities(default_qco=TEST_QCO,
                                                      operator_set=(op1, op2, op3),
                                                      fusing_patterns=(schema.Fusing(operator_groups=(op12, op3)),
-                                                                    schema.Fusing(operator_groups=(op1, op2))),
+                                                                      schema.Fusing(operator_groups=(op1, op2))),
                                                      tpc_minor_version=1,
                                                      tpc_patch_version=0,
                                                      tpc_platform_type="dump_to_json",
@@ -108,7 +107,7 @@ class TPModelInputOutputTests(unittest.TestCase):
         # Verify the contents match the model's JSON representation
         with open(self.valid_export_path, "r", encoding="utf-8") as file:
             content = file.read()
-        self.assertEqual(content, self.tpc.json(indent=4))
+        self.assertEqual(content, self.tpc.model_dump_json(indent=4))
 
     def test_export_with_invalid_model(self):
         """Test that exporting an invalid model raises a ValueError."""
@@ -133,7 +132,7 @@ class TPModelInputOutputTests(unittest.TestCase):
             # Verify the contents match the model's JSON representation
             with open(nested_path, "r", encoding="utf-8") as file:
                 content = file.read()
-            self.assertEqual(content, self.tpc.json(indent=4))
+            self.assertEqual(content, self.tpc.model_dump_json(indent=4))
         finally:
             # Cleanup created directories
             if os.path.exists(nested_path):
@@ -149,9 +148,9 @@ class TPModelInputOutputTests(unittest.TestCase):
         imported_model = load_target_platform_capabilities(self.valid_export_path)
         self.assertEqual(self.tpc, imported_model)
 
+
 class TargetPlatformModelingTest(unittest.TestCase):
     def test_immutable_tp(self):
-
         with self.assertRaises(Exception) as e:
             model = schema.TargetPlatformCapabilities(default_qco=TEST_QCO,
                                                       operator_set=tuple([schema.OperatorsSet(name="opset")]),
@@ -160,10 +159,15 @@ class TargetPlatformModelingTest(unittest.TestCase):
                                                       tpc_platform_type=None,
                                                       add_metadata=False)
             model.operator_set = tuple()
-        self.assertEqual('"TargetPlatformCapabilities" is immutable and does not support item assignment', str(e.exception))
+        self.assertEqual("""1 validation error for TargetPlatformCapabilities
+operator_set
+  Instance is frozen [type=frozen_instance, input_value=(), input_type=tuple]
+    For further information visit https://errors.pydantic.dev/2.10/v/frozen_instance""",
+                         str(e.exception))
 
     def test_default_options_more_than_single_qc(self):
-        test_qco = schema.QuantizationConfigOptions(quantization_configurations=tuple([TEST_QC, TEST_QC]), base_config=TEST_QC)
+        test_qco = schema.QuantizationConfigOptions(quantization_configurations=tuple([TEST_QC, TEST_QC]),
+                                                    base_config=TEST_QC)
         with self.assertRaises(Exception) as e:
             schema.TargetPlatformCapabilities(default_qco=test_qco,
                                               tpc_minor_version=None,
@@ -177,11 +181,14 @@ class TargetPlatformModelingTest(unittest.TestCase):
                                                 tpc_minor_version=None,
                                                 tpc_patch_version=None,
                                                 tpc_platform_type=None,
-                                                operator_set=tuple([schema.OperatorsSet(name="opA"), schema.OperatorsSet(name="opB")]),
+                                                operator_set=tuple(
+                                                    [schema.OperatorsSet(name="opA"), schema.OperatorsSet(name="opB")]),
                                                 fusing_patterns=tuple(
-                                             [schema.Fusing(operator_groups=(schema.OperatorsSet(name="opA"), schema.OperatorsSet(name="opB")))]),
+                                                    [schema.Fusing(operator_groups=(schema.OperatorsSet(name="opA"),
+                                                                                    schema.OperatorsSet(name="opB")))]),
                                                 add_metadata=False)
         tpm.show()
+
 
 class OpsetTest(unittest.TestCase):
 
@@ -248,9 +255,14 @@ class QCOptionsTest(unittest.TestCase):
     def test_list_of_no_qc(self):
         with self.assertRaises(Exception) as e:
             schema.QuantizationConfigOptions(quantization_configurations=tuple([TEST_QC, 3]), base_config=TEST_QC)
-        self.assertTrue(
-            "1 validation error for QuantizationConfigOptions\nquantization_configurations -> 1\n  value is not a valid dict (type=type_error.dict)" in str(
-                e.exception))
+        self.assertEqual(
+            ('1 validation error for QuantizationConfigOptions\n'
+             'quantization_configurations.1\n'
+             '  Input should be a valid dictionary or instance of OpQuantizationConfig '
+             '[type=model_type, input_value=3, input_type=int]\n'
+             '    For further information visit '
+             'https://errors.pydantic.dev/2.10/v/model_type')
+            , str(e.exception))
 
     def test_clone_and_edit_options(self):
         modified_options = TEST_QCO.clone_and_edit(activation_n_bits=3).clone_and_edit_weight_attribute(
@@ -262,9 +274,11 @@ class QCOptionsTest(unittest.TestCase):
             modified_options.quantization_configurations[0].attr_weights_configs_mapping[KERNEL_ATTR].weights_n_bits, 5)
 
     def test_qco_without_base_config(self):
-        schema.QuantizationConfigOptions(quantization_configurations=tuple([TEST_QC]))  # Should work fine as it has only one qc.
+        schema.QuantizationConfigOptions(
+            quantization_configurations=tuple([TEST_QC]))  # Should work fine as it has only one qc.
         with self.assertRaises(Exception) as e:
-            schema.QuantizationConfigOptions(quantization_configurations=tuple([TEST_QC, TEST_QC]))  # Should raise exception as base_config was not passed
+            schema.QuantizationConfigOptions(quantization_configurations=tuple(
+                [TEST_QC, TEST_QC]))  # Should raise exception as base_config was not passed
         self.assertEqual(
             'For multiple configurations, a \'base_config\' is required for non-mixed-precision optimization.',
             str(e.exception))
@@ -292,7 +306,6 @@ class FusingTest(unittest.TestCase):
         self.assertEqual('Fusing cannot be created for a single operator.', str(e.exception))
 
     def test_fusing_contains(self):
-
         operator_set, fusing_patterns = [], []
 
         conv = schema.OperatorsSet(name="conv")

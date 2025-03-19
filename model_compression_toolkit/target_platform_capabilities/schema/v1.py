@@ -161,9 +161,9 @@ class OpQuantizationConfig(BaseModel):
     supported_input_activation_n_bits: Union[int, Tuple[int, ...]]
     enable_activation_quantization: bool
     quantization_preserving: bool
-    fixed_scale: Optional[float]
-    fixed_zero_point: Optional[int]
-    simd_size: Optional[int]
+    fixed_scale: Optional[float] = None
+    fixed_zero_point: Optional[int] = None
+    simd_size: Optional[int] = None
     signedness: Signedness
     model_config = ConfigDict(frozen=True)
 
@@ -237,42 +237,35 @@ class QuantizationConfigOptions(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     @model_validator(mode="before")
-    @classmethod
-    def validate_and_set_base_config(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_and_set_base_config(self)-> "QuantizationConfigOptions":
         """
         Validate and set the base_config based on quantization_configurations.
 
-        Args:
-            values (Dict[str, Any]): Input data.
-
         Returns:
-            Dict[str, Any]: Modified input data with base_config set appropriately.
+           QuantizationConfigOptions
         """
-        quantization_configurations = values.get('quantization_configurations', ())
-        num_configs = len(quantization_configurations)
-        base_config = values.get('base_config')
 
-        if not isinstance(quantization_configurations, (tuple, list)):
+        if not isinstance(self['quantization_configurations'], (tuple, list)):
             Logger.critical(
-                f"'quantization_configurations' must be a list or tuple, but received: {type(quantization_configurations)}."
+                f"'quantization_configurations' must be a list or tuple, but received: {type(self.quantization_configurations)}."
             )  # pragma: no cover
 
-        if num_configs == 0:
+        if len(self['quantization_configurations']) == 0:
             Logger.critical(
                 "'QuantizationConfigOptions' requires at least one 'OpQuantizationConfig'. The provided configurations are empty."
             )  # pragma: no cover
 
-        if base_config is None:
-            if num_configs > 1:
+        if not self.get('base_config'):
+            if len(self['quantization_configurations']) > 1:
                 Logger.critical(
                     "For multiple configurations, a 'base_config' is required for non-mixed-precision optimization."
                 )  # pragma: no cover
             else:
                 # Automatically set base_config to the sole configuration
-                base_config = quantization_configurations[0]
+                self['base_config'] = self['quantization_configurations'][0]
 
 
-        if base_config not in quantization_configurations:
+        if self['base_config'] not in self['quantization_configurations']:
             Logger.critical(
                 "'base_config' must be included in the quantization config options."
             )  # pragma: no cover
@@ -283,13 +276,12 @@ class QuantizationConfigOptions(BaseModel):
         #             "'base_config' should be the same as the sole item in 'quantization_configurations'."
         #         )  # pragma: no cover
 
-        values['base_config'] = base_config
 
         # When loading from JSON, lists are returned. If the value is a list, convert it to a tuple.
-        if isinstance(quantization_configurations, list):
-            values['quantization_configurations'] = tuple(quantization_configurations)
+        if isinstance(self['quantization_configurations'], list):
+            self['quantization_configurations'] = tuple(self['quantization_configurations'])
 
-        return values
+        return self
 
     def clone_and_edit(self, **kwargs) -> 'QuantizationConfigOptions':
         """
@@ -465,31 +457,25 @@ class OperatorSetGroup(OperatorsSetBase):
     model_config = ConfigDict(frozen=True)
 
     @model_validator(mode="before")
-    @classmethod
-    def validate_and_set_name(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_and_set_name(self) -> "OperatorSetGroup":
         """
         Validate the input and set the concatenated name based on the operators_set.
 
-        Args:
-            values (Dict[str, Any]): Input data.
-
         Returns:
-            Dict[str, Any]: Modified input data with 'name' set.
+            OperatorSetGroup
         """
-        operators_set = values['operators_set']
 
-        if len(operators_set) < 1:
+        if len(self['operators_set']) < 1:
             Logger.critical("'operators_set' must contain at least one OperatorsSet") # pragma: no cover
 
-        if values.get('name') is None:
+        if not self.get('name'):
             # Generate the concatenated name from the operator sets
-            concatenated_name = "_".join([
+            self['name'] = "_".join([
                 op.name.value if isinstance(op.name, OperatorSetNames) else op.name
-                for op in operators_set
+                for op in self['operators_set']
             ])
-            values['name'] = concatenated_name
 
-        return values
+        return self
 
     def get_info(self) -> Dict[str, Any]:
         """
@@ -518,36 +504,30 @@ class Fusing(TargetPlatformModelComponent):
     model_config = ConfigDict(frozen=True)
 
     @model_validator(mode="before")
-    @classmethod
-    def validate_and_set_name(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_and_set_name(self) -> "Fusing":
         """
         Validate the operator_groups and set the name by concatenating operator group names.
 
-        Args:
-            values (Dict[str, Any]): Input data.
-
         Returns:
-            Dict[str, Any]: Modified input data with 'name' set.
+            Fusing
         """
-        operator_groups = values.get('operator_groups')
+        operator_groups = self.get('operator_groups')
 
         # When loading from JSON, lists are returned. If the value is a list, convert it to a tuple.
         if isinstance(operator_groups, list):
-            values['operator_groups'] = tuple(operator_groups)
+            self['operator_groups'] = tuple(operator_groups)
 
-        if values.get('name') is None:
+        if not self.get('name'):
             # Generate the concatenated name from the operator groups
-            concatenated_name = "_".join([
+            self['name'] = "_".join([
                 op.name.value if isinstance(op.name, OperatorSetNames) else op.name
-                for op in values['operator_groups']
+                for op in self['operator_groups']
             ])
-            values['name'] = concatenated_name
 
-        return values
+        return self
 
     @model_validator(mode="before")
-    @classmethod
-    def validate_after_initialization(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_after_initialization(self) -> "Fusing":
         """
         Perform validation after the model has been instantiated.
 
@@ -557,13 +537,12 @@ class Fusing(TargetPlatformModelComponent):
         Returns:
             Dict[str, Any]: The validated values.
         """
-        operator_groups = values.get('operator_groups')
 
         # Validate that there are at least two operator groups
-        if len(operator_groups) < 2:
+        if len(self['operator_groups']) < 2:
             Logger.critical("Fusing cannot be created for a single operator.")  # pragma: no cover
 
-        return values
+        return self
 
     def contains(self, other: Any) -> bool:
         """
@@ -629,11 +608,11 @@ class TargetPlatformCapabilities(BaseModel):
         SCHEMA_VERSION (int): Version of the schema for the Target Platform Model.
     """
     default_qco: QuantizationConfigOptions
-    operator_set: Optional[Tuple[OperatorsSet, ...]]
-    fusing_patterns: Optional[Tuple[Fusing, ...]]
-    tpc_minor_version: Optional[int]
-    tpc_patch_version: Optional[int]
-    tpc_platform_type: Optional[str]
+    operator_set: Optional[Tuple[OperatorsSet, ...]] = None
+    fusing_patterns: Optional[Tuple[Fusing, ...]] = None
+    tpc_minor_version: Optional[int] = None
+    tpc_patch_version: Optional[int] = None
+    tpc_platform_type: Optional[str] = None
     add_metadata: bool = True
     name: Optional[str] = "default_tpc"
     is_simd_padding: bool = False
@@ -641,9 +620,8 @@ class TargetPlatformCapabilities(BaseModel):
     SCHEMA_VERSION: int = 1
     model_config = ConfigDict(frozen=True)
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_after_initialization(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    @model_validator(mode="after")
+    def validate_after_initialization(self) -> "TargetPlatformCapabilities":
         """
         Perform validation after the model has been instantiated.
 
@@ -654,13 +632,12 @@ class TargetPlatformCapabilities(BaseModel):
             Dict[str, Any]: The validated values.
         """
         # Validate `default_qco`
-        default_qco = values.get('default_qco')
-        if len(default_qco.quantization_configurations) != 1:
+        if len(self.default_qco.quantization_configurations) != 1:
             Logger.critical("Default QuantizationConfigOptions must contain exactly one option.")  # pragma: no cover
 
         # Validate `operator_set` uniqueness
-        operator_set = values.get('operator_set')
-        if operator_set is not None:
+        operator_set = getattr(self,'operator_set')
+        if operator_set:
             opsets_names = [
                 op.name.value if isinstance(op.name, OperatorSetNames) else op.name
                 for op in operator_set
@@ -668,7 +645,7 @@ class TargetPlatformCapabilities(BaseModel):
             if len(set(opsets_names)) != len(opsets_names):
                 Logger.critical("Operator Sets must have unique names.")  # pragma: no cover
 
-        return values
+        return self
 
     def get_info(self) -> Dict[str, Any]:
         """

@@ -64,4 +64,3 @@ class AttachTpcToFramework:
                                         f'custom operator sets mapping.')
 
         return tpc
-
